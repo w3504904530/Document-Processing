@@ -77,28 +77,35 @@ class FileCompareGUI:
         # 参数设置区域
         param_frame = ttk.LabelFrame(main_frame, text="对比参数", padding="10")
         param_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        # 配置参数区域的列权重
         param_frame.columnconfigure(1, weight=1)
+        param_frame.columnconfigure(3, weight=1)
+        param_frame.columnconfigure(5, weight=1)
         
-        # 比较列
+        # 第一行：比较列名和行顺序策略
         ttk.Label(param_frame, text="比较列名:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-        ttk.Entry(param_frame, textvariable=self.comparison_column, width=20).grid(row=0, column=1, sticky=tk.W, padx=(0, 20))
+        ttk.Entry(param_frame, textvariable=self.comparison_column, width=15).grid(row=0, column=1, sticky=tk.W, padx=(0, 20))
         
-        # 行顺序保留策略
         ttk.Label(param_frame, text="行顺序策略:").grid(row=0, column=2, sticky=tk.W, padx=(0, 5))
         order_combo = ttk.Combobox(param_frame, textvariable=self.preserve_order_by, 
-                                  values=["None", "df1", "df2"], state="readonly", width=15)
+                                  values=["None", "df1", "df2"], state="readonly", width=12)
         order_combo.grid(row=0, column=3, sticky=tk.W)
         
-        # 列排序策略
-        ttk.Label(param_frame, text="列排序策略:").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(5, 0))
+        # 第二行：列排序策略
+        ttk.Label(param_frame, text="列排序策略:").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(10, 0))
         sort_combo = ttk.Combobox(param_frame, textvariable=self.column_sort_strategy,
-                                 values=["alternating", "grouped", "alphabetical"], state="readonly", width=20)
-        sort_combo.grid(row=1, column=1, sticky=tk.W, pady=(5, 0))
+                                 values=["alternating", "grouped", "alphabetical"], state="readonly", width=15)
+        sort_combo.grid(row=1, column=1, sticky=tk.W, pady=(10, 0))
         
-        # 策略说明
-        strategy_info = ttk.Label(param_frame, text="alternating: 交替排列 | grouped: 分组排列 | alphabetical: 字母顺序", 
+        # 第三行：说明文字
+        order_info = ttk.Label(param_frame, text="行顺序: None=按比较列排序 | df1=保留文件1顺序 | df2=保留文件2顺序", 
+                               font=("Arial", 9), foreground="gray")
+        order_info.grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=(5, 0))
+        
+        strategy_info = ttk.Label(param_frame, text="列排序: alternating=交替排列 | grouped=分组排列 | alphabetical=字母顺序", 
                                  font=("Arial", 9), foreground="gray")
-        strategy_info.grid(row=1, column=2, columnspan=2, sticky=tk.W, padx=(0, 5), pady=(5, 0))
+        strategy_info.grid(row=3, column=0, columnspan=4, sticky=tk.W, pady=(2, 0))
         
         # 操作按钮区域
         button_frame = ttk.Frame(main_frame)
@@ -272,10 +279,12 @@ class FileCompareGUI:
                 raise Exception(f"比较列 '{comparison_col}' 在文件2中不存在")
                 
             # 执行合并和重排序
+            preserve_order = self.preserve_order_by.get() if self.preserve_order_by.get() != "None" else None
             self.log_message(f"使用列排序策略: {self.column_sort_strategy.get()}")
+            self.log_message(f"行顺序保留策略: {preserve_order if preserve_order else 'None (按比较列排序)'}")
             merged_df, column_pairs = merge_and_reorder(
                 df1, df2, comparison_col, 
-                self.preserve_order_by.get() if self.preserve_order_by.get() != "None" else None,
+                preserve_order,
                 self.column_sort_strategy.get()
             )
             
@@ -301,6 +310,14 @@ class FileCompareGUI:
                 self.log_message(f"找到 {len(column_pairs)} 对可对比的列")
             else:
                 self.log_message("未找到可高亮的成对列")
+            
+            # 添加索引列说明
+            if preserve_order == 'df1':
+                self.log_message("已添加文件1的原始行索引列 (_df1_original_index)")
+            elif preserve_order == 'df2':
+                self.log_message("已添加文件2的原始行索引列 (_df2_original_index)")
+            elif preserve_order is None:
+                self.log_message("已添加两个文件的原始行索引列 (_df1_original_index, _df2_original_index)")
                 
             self.log_message("处理完成！")
             self.status_var.set("处理完成")

@@ -21,6 +21,14 @@ def merge_and_reorder(df1, df2, comparison_column, preserve_order_by=None, colum
 		- 'grouped': 分组排列（先df1的所有列，再df2的所有列）
 		- 'alphabetical': 按字母顺序排列
 	"""
+	# 为每个DataFrame添加原始行索引列以保持行顺序
+	df1_with_index = df1.copy()
+	df2_with_index = df2.copy()
+	
+	# 添加原始行索引列
+	df1_with_index['_original_row_index_1'] = range(len(df1_with_index))
+	df2_with_index['_original_row_index_2'] = range(len(df2_with_index))
+	
 	# 保留原始列集合用于后续列名构建
 	df1_cols = list(df1.columns)
 	df2_cols = list(df2.columns)
@@ -28,13 +36,41 @@ def merge_and_reorder(df1, df2, comparison_column, preserve_order_by=None, colum
 	# 根据是否需要保留某一侧的顺序选择合并方式
 	if preserve_order_by == 'df2':
 		# 以 df2 的顺序为主，用 left merge 保留 df2 顺序；设置后缀使得原 df1 列标记为 _1
-		merged_df = pd.merge(df2, df1, on=comparison_column, how='left', suffixes=('', '_1'))
+		merged_df = pd.merge(df2_with_index, df1_with_index, on=comparison_column, how='left', suffixes=('', '_1'))
 	elif preserve_order_by == 'df1':
-		merged_df = pd.merge(df1, df2, on=comparison_column, how='left', suffixes=('', '_2'))
+		merged_df = pd.merge(df1_with_index, df2_with_index, on=comparison_column, how='left', suffixes=('', '_2'))
 	else:
 		# 默认行为：outer 合并（原始实现）
-		merged_df = pd.merge(df1, df2, on=comparison_column, how='outer', suffixes=('', '_2'))
+		merged_df = pd.merge(df1_with_index, df2_with_index, on=comparison_column, how='outer', suffixes=('', '_2'))
 
+	# 根据preserve_order_by参数决定排序方式
+	if preserve_order_by == 'df2':
+		# 按df2的原始行索引排序，df1的索引作为次要排序条件
+		merged_df = merged_df.sort_values(['_original_row_index_2', '_original_row_index_1']).reset_index(drop=True)
+	elif preserve_order_by == 'df1':
+		# 按df1的原始行索引排序，df2的索引作为次要排序条件
+		merged_df = merged_df.sort_values(['_original_row_index_1', '_original_row_index_2']).reset_index(drop=True)
+	else:
+		# 默认情况：优先按df1的索引排序，然后按df2的索引排序
+		merged_df = merged_df.sort_values(['_original_row_index_1', '_original_row_index_2']).reset_index(drop=True)
+
+	# 根据preserve_order_by参数决定保留哪些索引列
+	if preserve_order_by == 'df1':
+		# 只保留df1的索引列
+		merged_df = merged_df.drop(['_original_row_index_2'], axis=1, errors='ignore')
+		# 重命名df1的索引列
+		merged_df = merged_df.rename(columns={'_original_row_index_1': '_df1_original_index'})
+	elif preserve_order_by == 'df2':
+		# 只保留df2的索引列
+		merged_df = merged_df.drop(['_original_row_index_1'], axis=1, errors='ignore')
+		# 重命名df2的索引列
+		merged_df = merged_df.rename(columns={'_original_row_index_2': '_df2_original_index'})
+	else:
+		# 保留两个索引列并重命名
+		merged_df = merged_df.rename(columns={
+			'_original_row_index_1': '_df1_original_index',
+			'_original_row_index_2': '_df2_original_index'
+		})
 
 	# 优化后的列名顺序重构
 	# 找出公共列（不包含比较列）
@@ -190,6 +226,7 @@ def data_comparison(col, file1, file2, preserve_order_by, column_sort_strategy, 
 	print(f"df1 列名: {df1.columns.tolist()}")
 	print(f"df2 列名: {df2.columns.tolist()}")
 	print(f"使用列排序策略: {column_sort_strategy}")
+	print(f"保留行顺序: {preserve_order_by}")
 
 	# 合并数据框并按列交替排列
 	merged_df, column_pairs = merge_and_reorder(df1, df2, col, preserve_order_by, column_sort_strategy)
@@ -205,18 +242,30 @@ def data_comparison(col, file1, file2, preserve_order_by, column_sort_strategy, 
 
 
 if __name__ == "__main__":
-	file1 = r'C:\Users\35049\OneDrive\PYthon\Document-Processing\test\1.xlsx'
-	file2 = r'C:\Users\35049\OneDrive\PYthon\Document-Processing\test\2.csv'
+	import os
+	
+	# 确保data目录存在
+	os.makedirs('./data', exist_ok=True)
+	
+	file1 = r'C:\Users\admin\OneDrive\PYthon\Document-Processing\test\1.xlsx'
+	file2 = r'C:\Users\admin\OneDrive\PYthon\Document-Processing\test\2.csv'
 	# 指定比较的列名
 	comparison_column = 'A'
 	
+	print("开始文件对比测试...")
+	print(f"文件1: {file1}")
+	print(f"文件2: {file2}")
+	print(f"比较列: {comparison_column}")
+	
 	# 演示不同的列排序策略（输出到不同文件，避免覆盖）
-	print("=== 交替排列策略 ===")
-	data_comparison(comparison_column, file1, file2, preserve_order_by='Any', column_sort_strategy='alternating', output_path='./data/out_alternating.xlsx')
+	print("\n=== 交替排列策略（默认行为，保留两个索引列） ===")
+	data_comparison(comparison_column, file1, file2, preserve_order_by=None, column_sort_strategy='alternating', output_path='./data/out_alternating_default.xlsx')
+	
+	print("\n测试完成！")
 	
 	# print("\n=== 分组排列策略 ===")
-	# data_comparison(comparison_column, file1, file2, preserve_order_by='Any', column_sort_strategy='grouped', output_path='./data/out_grouped.xlsx')
+	# data_comparison(comparison_column, file1, file2, preserve_order_by='df1', column_sort_strategy='grouped', output_path='./data/out_grouped.xlsx')
 	
 	# print("\n=== 字母顺序排列策略 ===")
-	# data_comparison(comparison_column, file1, file2, preserve_order_by='Any', column_sort_strategy='alphabetical', output_path='./data/out_alphabetical.xlsx')
+	# data_comparison(comparison_column, file1, file2, preserve_order_by='df1', column_sort_strategy='alphabetical', output_path='./data/out_alphabetical.xlsx')
 

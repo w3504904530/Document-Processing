@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+文件处理模块程序
+支持CSV、Excel的读取和文档处理功能
+"""
 import pandas as pd
 import os
 
