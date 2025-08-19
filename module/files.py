@@ -7,6 +7,29 @@
 import pandas as pd
 import os
 
+def classify_filename(filename,classify_name1,classify_name2):
+
+    """
+    通过文件名分类
+    支持两种类型识别方式：
+    1. 按文件名后缀识别（如 _point 或 _alarm_rule）
+    2. 按文件名包含的关键词识别
+    """
+    # # 方式1：按最后的下划线分割识别类型（推荐）
+    # if '_' in filename:
+    #     suffix = filename.split('_')[-1].lower().replace('.csv', '')
+    #     if suffix in ['point', 'alarmrule']:  # 处理可能的格式差异
+    #         return suffix
+    #     if suffix.startswith('alarm'):  # 处理 alarm_rule 可能被分割为 alarm
+    #         return 'alarm_rule'
+    
+    # 方式2：通过关键词匹配识别
+    filename_lower = filename.lower()
+    if classify_name1 in filename_lower:
+        return classify_name1
+    elif classify_name2 in filename_lower:
+        return classify_name2
+    return None
 
 def _read_csv_with_fallback(file_path: str):
     """尝试多种常见编码读取 CSV，避免 'utf-8' 解码失败。
@@ -102,12 +125,20 @@ def data_processing(df, processing_config):
         for col, replacements in processing_config['replace'].items():
             if col in df.columns:
                 df[col] = df[col].replace(replacements)
-    
+
     # # 5. 重新排序列
     # if 'reorder' in processing_config:
     #     # 只保留配置中存在的列
     #     existing_columns = [col for col in processing_config['reorder'] if col in df.columns]
     #     df = df[existing_columns]
+    
+    # 6. 筛选表头'source'中内容为'IGS','EMS','Math'的行
+    df = df[df['source'].isin(['IGS','EMS','Meter','ECU'])]
+
+    # 7. 按'addr'列排序
+    df = df.sort_values(by='description')
+
+
 
     # 添加返回处理后的 DataFrame
     return df
@@ -115,33 +146,81 @@ def data_processing(df, processing_config):
 
 if __name__ == "__main__":
     # 示例配置
-    processing_config = {
-        'delete': ['new_name','upload_name','description.1'],
-        'add': {'point_type': 2,
-                },
-        'rename': {'source': 'system__calculate_type',
-                   'category': 'source',
-                   'calculate_interval': 'system__calculate_interval',
-                   'script': 'system__script',
-                   'value': 'system__value',
-                   '断联操作': 'disconnect_op'
-                   },
-        'replace': {'system__calculate_type': {'EMS': 1, 'Math': '2'},
-                    'is_status': {'1': 'TRUE', '0': 'FALSE'},
-                    'is_active': {'1': 'TRUE', '0': 'FALSE'},
-                    'disconnect_op': {'置0': 2, '置空': 3, '保持': 1, '默认值': 4},
-                    'storage': {'秒':1, '分钟':2, '小时': 3, '天': 4, '月': 5, '年': 6},
-                    }
+    processing_configs1= {
+        # 处理point文件
+        'point':{
+            'delete': ['分类', '页面名称', '页面内容', 'Unnamed: 3', '数据来源', '页面点位', '备注', '备注.1'],
+            # 'add': {'point_type': 2,
+            #         },
+            'rename': {'点位描述': 'description',
+                    '点位名称': 'name',
+                    },
+            # 'replace': {'system__calculate_type': {'EMS': 1, 'Math': '2'},
+            #             'is_status': {'1': 'TRUE', '0': 'FALSE'},
+            #             'is_active': {'1': 'TRUE', '0': 'FALSE'},
+            #             'disconnect_op': {'置0': 2, '置空': 3, '保持': 1, '默认值': 4},
+            #             'storage': {'秒':1, '分钟':2, '小时': 3, '天': 4, '月': 5, '年': 6},
+            #             }
+        },
+        # 处理alarm文件
+        'alarm':{
+            'alarm_rule': {
+            'rename': {'rule_code': 'alarm_code', 'cond': 'condition'},
+            'add': {'acknowledged': False},
+            'replace': {'level': {'1': 'low', '2': 'medium', '3': 'high'}},
+            'delete': ['legacy_field'],
+            'reorder': ['alarm_code', 'condition', 'level']
+            },
+        }
     }
-    
-    # 读取文件
-    input_file = '数据处理\data\system_point.csv'  # 替换为实际文件路径
-    df = read_file(input_file)
-    
-    if df is not None:
-        # 处理数据
-        df = data_processing(df, processing_config)
-        
-        # 保存结果到 Excel
-        output_file = '数据处理\data\output_system_point.csv'  # 替换为实际输出路径
-        save_to_csv(df, output_file)
+
+    input_dir = r'./data'  # 替换为输入目录
+    output_dir = './data'  # 替换为输出目录
+
+    # 处理目录下所有文件
+    for filename in os.listdir(input_dir):
+        if filename.endswith(".csv") or filename.endswith(".xlsx"):
+
+            # 通过文件名分类
+            file_type = classify_filename(filename,'point','alarm')
+
+            if not file_type or file_type not in processing_configs:
+                print(f"⚠️ 未识别的文件类型: {filename}，已跳过")
+                continue
+
+            # 创建类型专属输出目录
+            type_output_dir = os.path.join(output_dir, file_type)
+            os.makedirs(type_output_dir, exist_ok=True)
+
+            # 输入输出文件路径
+            input_path = os.path.join(input_dir, filename)
+            output_path = os.path.join(type_output_dir, filename)
+
+            # 读取文件
+            df = read_file(input_path)
+
+            if df is not None:
+                try:
+                    # 处理数据
+                    df = data_processing(df, processing_configs[file_type])
+                    print(f"✅ 已处理 {filename} → {file_type} 类型")
+                except Exception as e:
+                    print(f"❌ 处理失败 {filename}: {str(e)}")
+
+                # 保存结果到 csv
+                save_to_csv(df, output_path)
+
+    print("\n处理完成！输出目录结构：")
+    print(f"{output_dir}/")
+    for root, dirs, files in os.walk(output_dir):
+        level = root.replace(output_dir, '').count(os.sep)
+        indent = ' ' * 4 * level
+        print(f'{indent}{os.path.basename(root)}/')
+        sub_indent = ' ' * 4 * (level + 1)
+        for f in files[:3]:  # 显示前3个文件示例
+            print(f'{sub_indent}{f}')
+        if len(files) > 3:
+            print(f'{sub_indent}...（共 {len(files)} 个文件）')
+
+    print("All files processed!")            
+                
